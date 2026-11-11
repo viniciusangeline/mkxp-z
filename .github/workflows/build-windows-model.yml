@@ -46,8 +46,12 @@ jobs:
           MSYS2_ENV_CONV_EXCL: CMAKE_POLICY_VERSION_MINIMUM
         run: |
           cd windows
-          # GCC 15/16 usa C23 por padrao e quebra o Ruby 3.1; forca C17 e acha SDL.h
-          make CFLAGS="-I$PWD/build-mingw64/include -I$PWD/build-mingw64/include/SDL2 -O3 -std=gnu17"
+          # GCC 15/16 usa C23 por padrao e quebra o Ruby 3.1: forca C17.
+          # (editar o Makefile em vez de "make CFLAGS=..." para nao
+          # sobrescrever o CFLAGS interno de freetype/SDL_image)
+          sed -i 's/^CFLAGS := -I\$(INCLUDEDIR) -O3/& -std=gnu17/' Makefile
+          grep -n '^CFLAGS' Makefile
+          make
 
       - name: Build exe
         shell: msys2 {0}
