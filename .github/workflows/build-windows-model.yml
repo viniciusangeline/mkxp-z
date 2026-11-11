@@ -11,6 +11,9 @@ jobs:
   build-windows:
     name: Windows
     runs-on: windows-latest
+    env:
+      # CMake 4 recusa projetos antigos (libjpeg-turbo etc.) sem isto
+      CMAKE_POLICY_VERSION_MINIMUM: "3.5"
     steps:
       - uses: msys2/setup-msys2@v2
         with:
@@ -37,6 +40,8 @@ jobs:
 
       - name: Build all dependencies
         shell: msys2 {0}
+        env:
+          MSYS2_ENV_CONV_EXCL: CMAKE_POLICY_VERSION_MINIMUM
         run: |
           cd windows
           make
