@@ -14,6 +14,8 @@ jobs:
     env:
       # CMake 4 recusa projetos antigos (libjpeg-turbo etc.) sem isto
       CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+      # GCC novo nao inclui <cstdint> sozinho (openal-soft antigo precisa)
+      CXXFLAGS: "-include cstdint"
     steps:
       - uses: msys2/setup-msys2@v2
         with:
