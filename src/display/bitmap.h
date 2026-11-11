@@ -155,6 +155,11 @@ public:
 	/* Adds 'rect' to tainted area */
 	void taintArea(const IntRect &rect);
 
+	/* <internal> Copies a rectangle of an external GPU texture into this
+	 * bitmap (used by the Model class to deliver its rendered result) */
+	void blitFromTexFBO(TEXFBO &source, const IntRect &srcRect,
+	                    int dstX, int dstY);
+
 	sigslot::signal<> modified;
 
 	static int maxSize();

@@ -126,6 +126,7 @@ main_source = files(
     'display/font.cpp',
     'display/graphics.cpp',
     'display/plane.cpp',
+    'display/model.cpp',
     'display/sprite.cpp',
     'display/tilemap.cpp',
     'display/tilemapvx.cpp',

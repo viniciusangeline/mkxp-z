@@ -337,6 +337,27 @@ protected:
 	GLint u_sourceSize;
 };
 
+/* DS Overworld addon: 3D model renderer. Compiled lazily on first use so
+ * that a driver problem can never prevent the game from starting. */
+class ModelShader : public ShaderBase
+{
+public:
+	ModelShader();
+
+	void ensureInit();
+
+	void setCamera(float sinP, float cosP, float focal, float camH,
+	               float g0, float cx, float cy);
+	void setTarget(int ox, int oy, int w, int h);
+	void setPlacement(float x, float y, float z, float scale,
+	                  float sinYaw, float cosYaw);
+	void setMaterial(bool useTexture, const float color[4]);
+
+private:
+	bool ready;
+	GLint u_camA, u_camB, u_tgt, u_modelA, u_yaw, u_matColor, u_useTexture;
+};
+
 /* Global object containing all available shaders */
 struct ShaderSet
 {
@@ -359,6 +380,7 @@ struct ShaderSet
 	BlurShader blur;
 	TilemapVXShader tilemapVX;
 	Lanczos3Shader lanczos3;
+	ModelShader model;
 };
 
 #endif // SHADER_H

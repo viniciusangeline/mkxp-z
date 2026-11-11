@@ -2099,6 +2099,21 @@ void Bitmap::taintArea(const IntRect &rect)
     p->addTaintedArea(rect);
 }
 
+void Bitmap::blitFromTexFBO(TEXFBO &source, const IntRect &srcRect,
+                            int dstX, int dstY)
+{
+    guardDisposed();
+    GUARD_MEGA;
+
+    GLMeta::blitBegin(getGLTypes());
+    GLMeta::blitSource(source);
+    GLMeta::blitRectangle(srcRect, Vec2i(dstX, dstY));
+    GLMeta::blitEnd();
+
+    p->addTaintedArea(IntRect(dstX, dstY, srcRect.w, srcRect.h));
+    p->onModified();
+}
+
 int Bitmap::maxSize(){
     return glState.caps.maxTexSize;
 }

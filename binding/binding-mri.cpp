@@ -83,6 +83,7 @@ void bitmapBindingInit();
 void spriteBindingInit();
 void viewportBindingInit();
 void planeBindingInit();
+void modelBindingInit();
 void windowBindingInit();
 void tilemapBindingInit();
 void windowVXBindingInit();
@@ -159,6 +160,7 @@ static void mriBindingInit() {
     spriteBindingInit();
     viewportBindingInit();
     planeBindingInit();
+    modelBindingInit();
     
     if (rgssVer == 1) {
         windowBindingInit();

@@ -1,0 +1,1294 @@
+diff --git a/.github/workflows/build-windows-model.yml b/.github/workflows/build-windows-model.yml
+new file mode 100644
+index 00000000..1b65951d
+--- /dev/null
++++ b/.github/workflows/build-windows-model.yml
+@@ -0,0 +1,72 @@
++# Builds only the Windows executable (mkxp-z + DS Overworld "Model" addon).
++# Run it from the "Actions" tab ("Run workflow") or push to any branch.
++name: Build Windows (Model addon)
++
++on:
++  workflow_dispatch:
++  push:
++    branches: ['autobuild', 'dsmodel']
++
++jobs:
++  build-windows:
++    name: Windows
++    runs-on: windows-latest
++    steps:
++      - uses: msys2/setup-msys2@v2
++        with:
++          msystem: mingw64
++          install: >-
++            base-devel
++            git
++            ruby
++            vim
++            mingw-w64-x86_64-cmake
++            mingw-w64-x86_64-meson
++            mingw-w64-x86_64-autotools
++            mingw-w64-x86_64-gcc
++
++      - name: Checkout repository
++        uses: actions/checkout@v4
++
++      - uses: actions/cache@v4
++        with:
++          path: |
++            windows/build-mingw64
++            windows/downloads
++          key: win-${{ hashFiles('windows/Makefile') }}
++
++      - name: Build all dependencies
++        shell: msys2 {0}
++        run: |
++          cd windows
++          make
++
++      - name: Build exe
++        shell: msys2 {0}
++        run: |
++          source windows/vars.sh
++          meson build
++          cd build
++          ninja
++          strip ./mkxp-z.exe
++
++      - name: Prepare archive
++        shell: msys2 {0}
++        run: |
++          mkdir build/artifact
++          cd build/artifact
++          cp /mingw64/bin/zlib1.dll .
++          cp ../../windows/build-mingw64/bin/x64-msvcrt-ruby310.dll .
++          cp -r ../../windows/build-mingw64/lib/ruby/3.1.0 .
++          mv ./3.1.0 ./stdlib
++          cp ../mkxp-z.exe .
++          cp ../../mkxp.json .
++
++      - uses: actions/upload-artifact@v4
++        with:
++          name: mkxp-z-windows-model-addon
++          path: |
++            build/artifact/*.dll
++            build/artifact/*.exe
++            build/artifact/mkxp.json
++            build/artifact/stdlib/
+diff --git a/binding/binding-mri.cpp b/binding/binding-mri.cpp
+index fb0029c7..5b85e5f7 100644
+--- a/binding/binding-mri.cpp
++++ b/binding/binding-mri.cpp
+@@ -83,6 +83,7 @@ void bitmapBindingInit();
+ void spriteBindingInit();
+ void viewportBindingInit();
+ void planeBindingInit();
++void modelBindingInit();
+ void windowBindingInit();
+ void tilemapBindingInit();
+ void windowVXBindingInit();
+@@ -159,6 +160,7 @@ static void mriBindingInit() {
+     spriteBindingInit();
+     viewportBindingInit();
+     planeBindingInit();
++    modelBindingInit();
+     
+     if (rgssVer == 1) {
+         windowBindingInit();
+diff --git a/binding/binding-types.h b/binding/binding-types.h
+index 96e59f79..50ab48c8 100644
+--- a/binding/binding-types.h
++++ b/binding/binding-types.h
+@@ -50,6 +50,7 @@ DECL_TYPE(MiniFFI);
+ #define BitmapType "Bitmap"
+ #define SpriteType "Sprite"
+ #define PlaneType "Plane"
++#define ModelType "Model"
+ #define ViewportType "Viewport"
+ #define TilemapType "Tilemap"
+ #define WindowType "Window"
+diff --git a/binding/meson.build b/binding/meson.build
+index 933a72d8..9fcdecab 100644
+--- a/binding/meson.build
++++ b/binding/meson.build
+@@ -26,6 +26,7 @@ binding_source = [files(
+     'sprite-binding.cpp',
+     'viewport-binding.cpp',
+     'plane-binding.cpp',
++    'model-binding.cpp',
+     'window-binding.cpp',
+     'tilemap-binding.cpp',
+     'audio-binding.cpp',
+diff --git a/binding/model-binding.cpp b/binding/model-binding.cpp
+new file mode 100644
+index 00000000..bd2bff36
+--- /dev/null
++++ b/binding/model-binding.cpp
+@@ -0,0 +1,225 @@
++/*
++** model-binding.cpp
++**
++** DS Overworld addon for mkxp-z: Ruby binding for the Model class.
++**
++**   m = Model.new(File.read("Graphics/Models/house.obj"))
++**   m.materials                       # => ["wall", "roof", ...]
++**   m.set_texture("wall", Bitmap.new("Graphics/Models/wall.png"))
++**   m.set_color("roof", 0.8, 0.2, 0.2)       # untextured material
++**   m.set_visible("shadow", false)
++**   m.triangles; m.vertices; m.bounds         # polygon budget helpers
++**   m.render(bitmap, [pitch, focal, zoom, cx, cy, tx, ty,
++**                     px, py, pz, scale, yaw])
++**
++** This file is part of mkxp.
++**
++** mkxp is free software: you can redistribute it and/or modify
++** it under the terms of the GNU General Public License as published by
++** the Free Software Foundation, either version 2 of the License, or
++** (at your option) any later version.
++*/
++
++#include "binding-types.h"
++#include "binding-util.h"
++#include "disposable-binding.h"
++#include "model.h"
++#include "bitmap.h"
++
++#include <string.h>
++
++#if RAPI_FULL > 187
++DEF_TYPE(Model);
++#else
++DEF_ALLOCFUNC(Model);
++#endif
++
++RB_METHOD(modelInitialize) {
++  const char *data;
++  int len;
++  rb_get_args(argc, argv, "s", &data, &len RB_ARG_END);
++
++  Model *m = 0;
++  GFX_GUARD_EXC(m = new Model(data, (size_t) len););
++
++  setPrivateData(self, m);
++
++  return self;
++}
++
++RB_METHOD(modelMaterials) {
++  RB_UNUSED_PARAM;
++
++  Model *m = getPrivateData<Model>(self);
++
++  VALUE ary = rb_ary_new();
++  int n = 0;
++
++  GFX_GUARD_EXC(n = m->materialCount(););
++
++  for (int i = 0; i < n; ++i)
++    rb_ary_push(ary, rb_str_new_cstr(m->materialName(i)));
++
++  return ary;
++}
++
++RB_METHOD(modelTriangles) {
++  RB_UNUSED_PARAM;
++
++  Model *m = getPrivateData<Model>(self);
++  int n = 0;
++  GFX_GUARD_EXC(n = m->triangleCount(););
++  return INT2NUM(n);
++}
++
++RB_METHOD(modelVertices) {
++  RB_UNUSED_PARAM;
++
++  Model *m = getPrivateData<Model>(self);
++  int n = 0;
++  GFX_GUARD_EXC(n = m->vertexCount(););
++  return INT2NUM(n);
++}
++
++RB_METHOD(modelMaterialTriangles) {
++  const char *name;
++  rb_get_args(argc, argv, "z", &name RB_ARG_END);
++
++  Model *m = getPrivateData<Model>(self);
++  int result = -1;
++
++  GFX_GUARD_EXC(
++    int n = m->materialCount();
++    for (int i = 0; i < n; ++i)
++      if (strcmp(m->materialName(i), name) == 0)
++        result = m->materialTriangles(i);
++  );
++
++  if (result < 0)
++    rb_raise(rb_eArgError, "unknown material '%s'", name);
++
++  return INT2NUM(result);
++}
++
++RB_METHOD(modelBounds) {
++  RB_UNUSED_PARAM;
++
++  Model *m = getPrivateData<Model>(self);
++  float b[6] = {0, 0, 0, 0, 0, 0};
++
++  GFX_GUARD_EXC(m->getBounds(b););
++
++  VALUE ary = rb_ary_new();
++  for (int i = 0; i < 6; ++i)
++    rb_ary_push(ary, rb_float_new(b[i]));
++
++  return ary;
++}
++
++RB_METHOD(modelSetTexture) {
++  const char *name;
++  VALUE bmpObj;
++  rb_get_args(argc, argv, "zo", &name, &bmpObj RB_ARG_END);
++
++  Model *m = getPrivateData<Model>(self);
++
++  Bitmap *bmp = 0;
++  if (!NIL_P(bmpObj))
++    bmp = getPrivateDataCheck<Bitmap>(bmpObj, BitmapType);
++
++  GFX_GUARD_EXC(m->setTexture(name, bmp););
++
++  /* Keep the Ruby Bitmap alive for as long as this model references it */
++  VALUE hash = rb_iv_get(self, "textures_");
++  if (NIL_P(hash)) {
++    hash = rb_hash_new();
++    rb_iv_set(self, "textures_", hash);
++  }
++  rb_hash_aset(hash, rb_str_new_cstr(name), bmpObj);
++
++  return self;
++}
++
++RB_METHOD(modelSetColor) {
++  const char *name;
++  /* rb_get_args' 'f' format writes a double */
++  double r, g, b;
++  double a = 1.0;
++  rb_get_args(argc, argv, "zfff|f", &name, &r, &g, &b, &a RB_ARG_END);
++
++  Model *m = getPrivateData<Model>(self);
++  GFX_GUARD_EXC(m->setColor(name, (float) r, (float) g, (float) b, (float) a););
++
++  return self;
++}
++
++RB_METHOD(modelSetVisible) {
++  const char *name;
++  bool visible;
++  rb_get_args(argc, argv, "zb", &name, &visible RB_ARG_END);
++
++  Model *m = getPrivateData<Model>(self);
++  GFX_GUARD_EXC(m->setVisible(name, visible););
++
++  return self;
++}
++
++RB_METHOD(modelRender) {
++  VALUE bmpObj;
++  VALUE params;
++  rb_get_args(argc, argv, "oo", &bmpObj, &params RB_ARG_END);
++
++  Model *m = getPrivateData<Model>(self);
++  Bitmap *bmp = getPrivateDataCheck<Bitmap>(bmpObj, BitmapType);
++
++  Check_Type(params, T_ARRAY);
++
++  if (RARRAY_LEN(params) < 12)
++    rb_raise(rb_eArgError,
++             "render parameters need 12 numbers: pitch, focal, zoom, "
++             "center_x, center_y, target_x, target_y, x, y, z, scale, yaw");
++
++  double v[12];
++  for (int i = 0; i < 12; ++i)
++    v[i] = NUM2DBL(rb_ary_entry(params, i));
++
++  Model::RenderParams rp;
++  rp.pitchDeg = (float) v[0];
++  rp.focal    = (float) v[1];
++  rp.zoom     = (float) v[2];
++  rp.centerX  = (float) v[3];
++  rp.centerY  = (float) v[4];
++  rp.targetX  = (int) v[5];
++  rp.targetY  = (int) v[6];
++  rp.posX     = (float) v[7];
++  rp.posY     = (float) v[8];
++  rp.posZ     = (float) v[9];
++  rp.scale    = (float) v[10];
++  rp.yawDeg   = (float) v[11];
++
++  GFX_GUARD_EXC(m->render(*bmp, rp););
++
++  return self;
++}
++
++void modelBindingInit() {
++  VALUE klass = rb_define_class("Model", rb_cObject);
++#if RAPI_FULL > 187
++  rb_define_alloc_func(klass, classAllocate<&ModelType>);
++#else
++  rb_define_alloc_func(klass, ModelAllocate);
++#endif
++
++  disposableBindingInit<Model>(klass);
++
++  _rb_define_method(klass, "initialize", modelInitialize);
++  _rb_define_method(klass, "materials", modelMaterials);
++  _rb_define_method(klass, "triangles", modelTriangles);
++  _rb_define_method(klass, "vertices", modelVertices);
++  _rb_define_method(klass, "material_triangles", modelMaterialTriangles);
++  _rb_define_method(klass, "bounds", modelBounds);
++  _rb_define_method(klass, "set_texture", modelSetTexture);
++  _rb_define_method(klass, "set_color", modelSetColor);
++  _rb_define_method(klass, "set_visible", modelSetVisible);
++  _rb_define_method(klass, "render", modelRender);
++}
+diff --git a/shader/meson.build b/shader/meson.build
+index 4b5e2496..967c1b2c 100644
+--- a/shader/meson.build
++++ b/shader/meson.build
+@@ -25,7 +25,9 @@ embedded_shaders = [
+     'blur.frag',
+     'blurH.vert',
+     'blurV.vert',
+-    'simpleMatrix.vert'
++    'simpleMatrix.vert',
++    'model.vert',
++    'model.frag'
+ ]
+ 
+ embedded_shaders_f = files(embedded_shaders)
+diff --git a/shader/model.frag b/shader/model.frag
+new file mode 100644
+index 00000000..fe26b24b
+--- /dev/null
++++ b/shader/model.frag
+@@ -0,0 +1,17 @@
++// Fragment shader for the Model class: unlit, nearest-filtered, alpha cutout.
++
++uniform sampler2D texture;
++uniform vec4 matColor;     // flat color used when the material has no texture
++uniform float useTexture;  // 1.0 = sample texture, 0.0 = flat color
++
++varying vec2 v_texCoord;
++
++void main()
++{
++	vec4 frag = (useTexture > 0.5) ? texture2D(texture, v_texCoord) : matColor;
++
++	if (frag.a < 0.5)
++		discard;
++
++	gl_FragColor = vec4(frag.rgb, 1.0);
++}
+diff --git a/shader/model.vert b/shader/model.vert
+new file mode 100644
+index 00000000..80545e8f
+--- /dev/null
++++ b/shader/model.vert
+@@ -0,0 +1,54 @@
++// Vertex shader for the Model class (DS-style 3D buildings).
++//
++// World space: X = east, Y = up, Z = south (towards the camera).
++// The camera sits at (0, camH, g0) and looks north with a downward pitch.
++// This is exactly the same projection used by the Ruby ground renderer,
++// so models line up perfectly with the perspective floor.
++//
++// Output is written directly in homogeneous clip space (no divisions),
++// so hardware clipping and perspective-correct interpolation work.
++
++uniform vec4 camA;    // sin(pitch), cos(pitch), focal length (px), camera height
++uniform vec4 camB;    // g0, screen center x, screen center y, unused
++uniform vec4 tgt;     // target origin on screen (ox, oy), target size (w, h)
++uniform vec4 modelA;  // model origin in world: x, y (up), z (south); scale
++uniform vec2 yaw;     // sin, cos of the model rotation around the up axis
++
++attribute vec3 position;
++attribute vec2 texCoord;
++
++varying vec2 v_texCoord;
++
++const float NEAR = 16.0;
++const float FAR  = 16384.0;
++
++void main()
++{
++	vec3 p = position * modelA.w;
++
++	vec3 w;
++	w.x =  p.x * yaw.y + p.z * yaw.x;
++	w.y =  p.y;
++	w.z = -p.x * yaw.x + p.z * yaw.y;
++	w += modelA.xyz;
++
++	float sinP = camA.x;
++	float cosP = camA.y;
++	float focal = camA.z;
++
++	vec3 rel = vec3(w.x, w.y - camA.w, w.z - camB.x);
++
++	float depth = -sinP * rel.y - cosP * rel.z;   // distance along the view axis
++	float up    =  cosP * rel.y - sinP * rel.z;   // component along camera "up"
++
++	float cx = (2.0 / tgt.z) * (focal * rel.x + (camB.y - tgt.x) * depth) - depth;
++	float cy = (2.0 / tgt.w) * (-focal * up   + (camB.z - tgt.y) * depth) - depth;
++
++	float A = (FAR + NEAR) / (FAR - NEAR);
++	float B = -2.0 * FAR * NEAR / (FAR - NEAR);
++	float cz = A * depth + B;
++
++	gl_Position = vec4(cx, cy, cz, depth);
++
++	v_texCoord = texCoord;
++}
+diff --git a/src/display/bitmap.cpp b/src/display/bitmap.cpp
+index 4b431231..98f6e988 100644
+--- a/src/display/bitmap.cpp
++++ b/src/display/bitmap.cpp
+@@ -2099,6 +2099,21 @@ void Bitmap::taintArea(const IntRect &rect)
+     p->addTaintedArea(rect);
+ }
+ 
++void Bitmap::blitFromTexFBO(TEXFBO &source, const IntRect &srcRect,
++                            int dstX, int dstY)
++{
++    guardDisposed();
++    GUARD_MEGA;
++
++    GLMeta::blitBegin(getGLTypes());
++    GLMeta::blitSource(source);
++    GLMeta::blitRectangle(srcRect, Vec2i(dstX, dstY));
++    GLMeta::blitEnd();
++
++    p->addTaintedArea(IntRect(dstX, dstY, srcRect.w, srcRect.h));
++    p->onModified();
++}
++
+ int Bitmap::maxSize(){
+     return glState.caps.maxTexSize;
+ }
+diff --git a/src/display/bitmap.h b/src/display/bitmap.h
+index 0b747470..809d2a8e 100644
+--- a/src/display/bitmap.h
++++ b/src/display/bitmap.h
+@@ -155,6 +155,11 @@ public:
+ 	/* Adds 'rect' to tainted area */
+ 	void taintArea(const IntRect &rect);
+ 
++	/* <internal> Copies a rectangle of an external GPU texture into this
++	 * bitmap (used by the Model class to deliver its rendered result) */
++	void blitFromTexFBO(TEXFBO &source, const IntRect &srcRect,
++	                    int dstX, int dstY);
++
+ 	sigslot::signal<> modified;
+ 
+ 	static int maxSize();
+diff --git a/src/display/gl/gl-fun.h b/src/display/gl/gl-fun.h
+index 811be8fa..d30cd5c9 100644
+--- a/src/display/gl/gl-fun.h
++++ b/src/display/gl/gl-fun.h
+@@ -104,6 +104,11 @@ typedef void (APIENTRYP _PFNGLGENFRAMEBUFFERSPROC) (GLsizei n, GLuint* framebuff
+ typedef void (APIENTRYP _PFNGLDELETEFRAMEBUFFERSPROC) (GLsizei n, const GLuint* framebuffers);
+ typedef void (APIENTRYP _PFNGLBINDFRAMEBUFFERPROC) (GLenum target, GLuint framebuffer);
+ typedef void (APIENTRYP _PFNGLFRAMEBUFFERTEXTURE2DPROC) (GLenum target, GLenum attachment, GLenum textarget, GLuint texture, GLint level);
++typedef void (APIENTRYP _PFNGLGENRENDERBUFFERSPROC) (GLsizei n, GLuint* renderbuffers);
++typedef void (APIENTRYP _PFNGLDELETERENDERBUFFERSPROC) (GLsizei n, const GLuint* renderbuffers);
++typedef void (APIENTRYP _PFNGLBINDRENDERBUFFERPROC) (GLenum target, GLuint renderbuffer);
++typedef void (APIENTRYP _PFNGLRENDERBUFFERSTORAGEPROC) (GLenum target, GLenum internalformat, GLsizei width, GLsizei height);
++typedef void (APIENTRYP _PFNGLFRAMEBUFFERRENDERBUFFERPROC) (GLenum target, GLenum attachment, GLenum renderbuffertarget, GLuint renderbuffer);
+ typedef void (APIENTRYP _PFNGLBLITFRAMEBUFFERPROC) (GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0, GLint dstX1, GLint dstY1, GLbitfield mask, GLenum filter);
+ 
+ /* Vertex array object */
+@@ -191,7 +196,13 @@ typedef void (APIENTRYP _PFNGLRELEASESHADERCOMPILERPROC) (void);
+ 	GL_FUN(GenFramebuffers, _PFNGLGENFRAMEBUFFERSPROC) \
+ 	GL_FUN(DeleteFramebuffers, _PFNGLDELETEFRAMEBUFFERSPROC) \
+ 	GL_FUN(BindFramebuffer, _PFNGLBINDFRAMEBUFFERPROC) \
+-	GL_FUN(FramebufferTexture2D, _PFNGLFRAMEBUFFERTEXTURE2DPROC)
++	GL_FUN(FramebufferTexture2D, _PFNGLFRAMEBUFFERTEXTURE2DPROC) \
++	/* Renderbuffer (used by the Model class for depth) */ \
++	GL_FUN(GenRenderbuffers, _PFNGLGENRENDERBUFFERSPROC) \
++	GL_FUN(DeleteRenderbuffers, _PFNGLDELETERENDERBUFFERSPROC) \
++	GL_FUN(BindRenderbuffer, _PFNGLBINDRENDERBUFFERPROC) \
++	GL_FUN(RenderbufferStorage, _PFNGLRENDERBUFFERSTORAGEPROC) \
++	GL_FUN(FramebufferRenderbuffer, _PFNGLFRAMEBUFFERRENDERBUFFERPROC)
+ 
+ #define GL_FBO_BLIT_FUN \
+ 	GL_FUN(BlitFramebuffer, _PFNGLBLITFRAMEBUFFERPROC)
+diff --git a/src/display/gl/shader.cpp b/src/display/gl/shader.cpp
+index d905a5b9..5748f066 100644
+--- a/src/display/gl/shader.cpp
++++ b/src/display/gl/shader.cpp
+@@ -55,6 +55,8 @@
+ #include "blurH.vert.xxd"
+ #include "blurV.vert.xxd"
+ #include "tilemapvx.vert.xxd"
++#include "model.vert.xxd"
++#include "model.frag.xxd"
+ #endif
+ 
+ #ifdef MKXPZ_BUILD_XCODE
+@@ -763,3 +765,56 @@ void Lanczos3Shader::setTexSize(const Vec2i &value)
+ 	ShaderBase::setTexSize(value);
+ 	gl.Uniform2f(u_sourceSize, (float)value.x, (float)value.y);
+ }
++
++
++/* DS Overworld addon */
++ModelShader::ModelShader()
++    : ready(false),
++      u_camA(-1), u_camB(-1), u_tgt(-1), u_modelA(-1), u_yaw(-1),
++      u_matColor(-1), u_useTexture(-1)
++{}
++
++void ModelShader::ensureInit()
++{
++	if (ready)
++		return;
++
++	INIT_SHADER(model, model, ModelShader);
++
++	ShaderBase::init();
++
++	GET_U(camA);
++	GET_U(camB);
++	GET_U(tgt);
++	GET_U(modelA);
++	GET_U(yaw);
++	GET_U(matColor);
++	GET_U(useTexture);
++
++	ready = true;
++}
++
++void ModelShader::setCamera(float sinP, float cosP, float focal, float camH,
++                            float g0, float cx, float cy)
++{
++	gl.Uniform4f(u_camA, sinP, cosP, focal, camH);
++	gl.Uniform4f(u_camB, g0, cx, cy, 0.f);
++}
++
++void ModelShader::setTarget(int ox, int oy, int w, int h)
++{
++	gl.Uniform4f(u_tgt, ox, oy, w, h);
++}
++
++void ModelShader::setPlacement(float x, float y, float z, float scale,
++                               float sinYaw, float cosYaw)
++{
++	gl.Uniform4f(u_modelA, x, y, z, scale);
++	gl.Uniform2f(u_yaw, sinYaw, cosYaw);
++}
++
++void ModelShader::setMaterial(bool useTexture, const float color[4])
++{
++	gl.Uniform1f(u_useTexture, useTexture ? 1.f : 0.f);
++	gl.Uniform4f(u_matColor, color[0], color[1], color[2], color[3]);
++}
+diff --git a/src/display/gl/shader.h b/src/display/gl/shader.h
+index b7a2881b..67d89af6 100644
+--- a/src/display/gl/shader.h
++++ b/src/display/gl/shader.h
+@@ -337,6 +337,27 @@ protected:
+ 	GLint u_sourceSize;
+ };
+ 
++/* DS Overworld addon: 3D model renderer. Compiled lazily on first use so
++ * that a driver problem can never prevent the game from starting. */
++class ModelShader : public ShaderBase
++{
++public:
++	ModelShader();
++
++	void ensureInit();
++
++	void setCamera(float sinP, float cosP, float focal, float camH,
++	               float g0, float cx, float cy);
++	void setTarget(int ox, int oy, int w, int h);
++	void setPlacement(float x, float y, float z, float scale,
++	                  float sinYaw, float cosYaw);
++	void setMaterial(bool useTexture, const float color[4]);
++
++private:
++	bool ready;
++	GLint u_camA, u_camB, u_tgt, u_modelA, u_yaw, u_matColor, u_useTexture;
++};
++
+ /* Global object containing all available shaders */
+ struct ShaderSet
+ {
+@@ -359,6 +380,7 @@ struct ShaderSet
+ 	BlurShader blur;
+ 	TilemapVXShader tilemapVX;
+ 	Lanczos3Shader lanczos3;
++	ModelShader model;
+ };
+ 
+ #endif // SHADER_H
+diff --git a/src/display/model.cpp b/src/display/model.cpp
+new file mode 100644
+index 00000000..8a80b6e3
+--- /dev/null
++++ b/src/display/model.cpp
+@@ -0,0 +1,560 @@
++/*
++** model.cpp
++**
++** DS Overworld addon for mkxp-z. See model.h.
++**
++** This file is part of mkxp.
++**
++** mkxp is free software: you can redistribute it and/or modify
++** it under the terms of the GNU General Public License as published by
++** the Free Software Foundation, either version 2 of the License, or
++** (at your option) any later version.
++*/
++
++#include "model.h"
++
++#include "bitmap.h"
++#include "sharedstate.h"
++#include "glstate.h"
++#include "gl-util.h"
++#include "gl-meta.h"
++#include "shader.h"
++#include "vertex.h"
++#include "exception.h"
++
++#include <string.h>
++#include <stdlib.h>
++#include <stdio.h>
++#include <math.h>
++
++#include <map>
++#include <string>
++#include <utility>
++#include <vector>
++
++static const float kPi = 3.14159265358979f;
++
++struct ModelVertex
++{
++	float x, y, z;
++	float u, v;
++};
++
++static const VertexAttribute modelAttrs[] =
++{
++	{ Shader::Position, 3, GL_FLOAT, (const GLvoid*) 0 },
++	{ Shader::TexCoord, 2, GL_FLOAT, (const GLvoid*) (3 * sizeof(float)) }
++};
++
++struct ModelMaterial
++{
++	std::string name;
++	size_t firstIndex;
++	size_t indexCount;
++	Bitmap *texture;
++	float color[4];
++	bool visible;
++
++	ModelMaterial()
++	    : firstIndex(0), indexCount(0), texture(0), visible(true)
++	{
++		color[0] = color[1] = color[2] = 0.8f;
++		color[3] = 1.f;
++	}
++};
++
++struct ModelPrivate
++{
++	std::vector<ModelVertex> verts;
++	std::vector<GLushort> indices;
++	std::vector<ModelMaterial> mats;
++
++	float bounds[6];
++
++	GLMeta::VAO vao;
++	bool glReady;
++
++	ModelPrivate()
++	    : glReady(false)
++	{
++		memset(bounds, 0, sizeof(bounds));
++		vao = GLMeta::VAO();
++	}
++
++	ModelMaterial *find(const char *name)
++	{
++		for (size_t i = 0; i < mats.size(); ++i)
++			if (mats[i].name == name)
++				return &mats[i];
++
++		throw Exception(Exception::MKXPError,
++		                "Model: unknown material '%s'", name);
++	}
++};
++
++/*---------------------------------------------------------------------------
++ * Offscreen render target shared by all models (color + depth).
++ * It is only ever grown, never freed: it lives as long as the GL context.
++ *-------------------------------------------------------------------------*/
++struct ScratchTarget
++{
++	TEXFBO tf;
++	GLuint depthRb;
++	int w, h;
++	bool inited;
++
++	ScratchTarget()
++	    : depthRb(0), w(0), h(0), inited(false)
++	{}
++
++	static ScratchTarget &get(int needW, int needH)
++	{
++		static ScratchTarget s;
++
++		if (!s.inited)
++		{
++			TEXFBO::init(s.tf);
++			gl.GenRenderbuffers(1, &s.depthRb);
++			s.inited = true;
++		}
++
++		if (needW > s.w || needH > s.h)
++		{
++			int nw = needW > s.w ? needW : s.w;
++			int nh = needH > s.h ? needH : s.h;
++
++			/* Round up so small differences don't realloc every call */
++			nw = (nw + 63) & ~63;
++			nh = (nh + 63) & ~63;
++
++			TEXFBO::allocEmpty(s.tf, nw, nh);
++			TEXFBO::linkFBO(s.tf);
++
++#ifdef GL_DEPTH_COMPONENT24
++			GLenum depthFmt = gl.glsles ? GL_DEPTH_COMPONENT16
++			                            : GL_DEPTH_COMPONENT24;
++#else
++			GLenum depthFmt = GL_DEPTH_COMPONENT16;
++#endif
++
++			gl.BindRenderbuffer(GL_RENDERBUFFER, s.depthRb);
++			gl.RenderbufferStorage(GL_RENDERBUFFER, depthFmt, nw, nh);
++			gl.FramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
++			                           GL_RENDERBUFFER, s.depthRb);
++			gl.BindRenderbuffer(GL_RENDERBUFFER, 0);
++
++			s.w = nw;
++			s.h = nh;
++		}
++
++		return s;
++	}
++};
++
++/*---------------------------------------------------------------------------
++ * OBJ parsing
++ *-------------------------------------------------------------------------*/
++static int resolveIndex(long idx, size_t count)
++{
++	if (idx > 0)
++		return (int) idx - 1;
++	if (idx < 0)
++		return (int) count + (int) idx;
++	return -1;
++}
++
++static void parseFaceToken(const char *s, long &vi, long &ti)
++{
++	char *e = 0;
++
++	vi = strtol(s, &e, 10);
++	ti = 0;
++
++	if (*e == '/')
++	{
++		s = e + 1;
++
++		if (*s != '/')
++			ti = strtol(s, &e, 10);
++	}
++}
++
++static std::string trim(const std::string &in)
++{
++	size_t b = 0, e = in.size();
++
++	while (b < e && (in[b] == ' ' || in[b] == '\t'))
++		++b;
++	while (e > b && (in[e-1] == ' ' || in[e-1] == '\t' || in[e-1] == '\r'))
++		--e;
++
++	return in.substr(b, e - b);
++}
++
++static void parseObj(const char *data, size_t len, ModelPrivate &mp)
++{
++	std::vector<float> pos;   /* x y z */
++	std::vector<float> uv;    /* u v   */
++
++	std::vector<std::vector<GLushort> > matIdx;
++	std::map<std::string, int> matLookup;
++	std::map<std::pair<int, int>, GLushort> cache;
++
++	int cur = -1;
++
++	bool haveBounds = false;
++
++	const char *p = data;
++	const char *end = data + len;
++
++	while (p < end)
++	{
++		const char *le = (const char*) memchr(p, '\n', end - p);
++		if (!le)
++			le = end;
++
++		std::string line = trim(std::string(p, le - p));
++		p = le + 1;
++
++		if (line.size() < 2 || line[0] == '#')
++			continue;
++
++		if (line.compare(0, 2, "v ") == 0)
++		{
++			float x = 0, y = 0, z = 0;
++			sscanf(line.c_str() + 2, "%f %f %f", &x, &y, &z);
++			pos.push_back(x); pos.push_back(y); pos.push_back(z);
++		}
++		else if (line.compare(0, 3, "vt ") == 0)
++		{
++			float u = 0, v = 0;
++			sscanf(line.c_str() + 3, "%f %f", &u, &v);
++			uv.push_back(u); uv.push_back(v);
++		}
++		else if (line.compare(0, 7, "usemtl ") == 0)
++		{
++			std::string name = trim(line.substr(7));
++			std::map<std::string, int>::iterator it = matLookup.find(name);
++
++			if (it == matLookup.end())
++			{
++				cur = (int) mp.mats.size();
++				matLookup[name] = cur;
++				mp.mats.push_back(ModelMaterial());
++				mp.mats.back().name = name;
++				matIdx.push_back(std::vector<GLushort>());
++			}
++			else
++				cur = it->second;
++		}
++		else if (line.compare(0, 2, "f ") == 0)
++		{
++			if (cur < 0)
++			{
++				cur = (int) mp.mats.size();
++				matLookup["default"] = cur;
++				mp.mats.push_back(ModelMaterial());
++				mp.mats.back().name = "default";
++				matIdx.push_back(std::vector<GLushort>());
++			}
++
++			std::vector<GLushort> face;
++
++			const char *s = line.c_str() + 2;
++
++			while (*s)
++			{
++				while (*s == ' ' || *s == '\t')
++					++s;
++				if (!*s)
++					break;
++
++				long vi, ti;
++				parseFaceToken(s, vi, ti);
++
++				while (*s && *s != ' ' && *s != '\t')
++					++s;
++
++				int pi = resolveIndex(vi, pos.size() / 3);
++				int tix = resolveIndex(ti, uv.size() / 2);
++
++				if (pi < 0 || (size_t) pi >= pos.size() / 3)
++					throw Exception(Exception::MKXPError,
++					                "Model: face references missing vertex %ld", vi);
++
++				std::pair<int, int> key(pi, tix);
++				std::map<std::pair<int, int>, GLushort>::iterator it = cache.find(key);
++
++				if (it == cache.end())
++				{
++					if (mp.verts.size() >= 65535)
++						throw Exception(Exception::MKXPError,
++						                "Model has too many vertices (limit is 65535)");
++
++					ModelVertex v;
++					v.x = pos[pi*3]; v.y = pos[pi*3+1]; v.z = pos[pi*3+2];
++
++					if (tix >= 0 && (size_t) tix < uv.size() / 2)
++					{
++						v.u = uv[tix*2];
++						v.v = 1.f - uv[tix*2+1];
++					}
++					else
++						v.u = v.v = 0.f;
++
++					if (!haveBounds)
++					{
++						mp.bounds[0] = mp.bounds[3] = v.x;
++						mp.bounds[1] = mp.bounds[4] = v.y;
++						mp.bounds[2] = mp.bounds[5] = v.z;
++						haveBounds = true;
++					}
++					else
++					{
++						if (v.x < mp.bounds[0]) mp.bounds[0] = v.x;
++						if (v.y < mp.bounds[1]) mp.bounds[1] = v.y;
++						if (v.z < mp.bounds[2]) mp.bounds[2] = v.z;
++						if (v.x > mp.bounds[3]) mp.bounds[3] = v.x;
++						if (v.y > mp.bounds[4]) mp.bounds[4] = v.y;
++						if (v.z > mp.bounds[5]) mp.bounds[5] = v.z;
++					}
++
++					GLushort id = (GLushort) mp.verts.size();
++					mp.verts.push_back(v);
++					cache[key] = id;
++					face.push_back(id);
++				}
++				else
++					face.push_back(it->second);
++			}
++
++			/* Triangle fan */
++			for (size_t i = 1; i + 1 < face.size(); ++i)
++			{
++				matIdx[cur].push_back(face[0]);
++				matIdx[cur].push_back(face[i]);
++				matIdx[cur].push_back(face[i+1]);
++			}
++		}
++	}
++
++	/* Lay triangles out grouped by material */
++	for (size_t m = 0; m < mp.mats.size(); ++m)
++	{
++		mp.mats[m].firstIndex = mp.indices.size();
++		mp.mats[m].indexCount = matIdx[m].size();
++		mp.indices.insert(mp.indices.end(), matIdx[m].begin(), matIdx[m].end());
++	}
++
++	if (mp.indices.empty())
++		throw Exception(Exception::MKXPError, "Model has no faces");
++}
++
++/*---------------------------------------------------------------------------
++ * Model
++ *-------------------------------------------------------------------------*/
++Model::Model(const char *objData, size_t objLen)
++{
++	p = new ModelPrivate();
++
++	try
++	{
++		parseObj(objData, objLen, *p);
++
++		VBO::ID vbo = VBO::gen();
++		IBO::ID ibo = IBO::gen();
++
++		VBO::bind(vbo);
++		VBO::uploadData(p->verts.size() * sizeof(ModelVertex), &p->verts[0]);
++		IBO::bind(ibo);
++		IBO::uploadData(p->indices.size() * sizeof(GLushort), &p->indices[0]);
++
++		p->vao.vbo = vbo;
++		p->vao.ibo = ibo;
++		p->vao.attr = modelAttrs;
++		p->vao.attrCount = 2;
++		p->vao.vertSize = sizeof(ModelVertex);
++
++		GLMeta::vaoInit(p->vao);
++		p->glReady = true;
++
++		VBO::unbind();
++		IBO::unbind();
++	}
++	catch (...)
++	{
++		delete p;
++		p = 0;
++		throw;
++	}
++}
++
++Model::~Model()
++{
++	dispose();
++}
++
++int Model::vertexCount() const
++{
++	guardDisposed();
++	return (int) p->verts.size();
++}
++
++int Model::triangleCount() const
++{
++	guardDisposed();
++	return (int) (p->indices.size() / 3);
++}
++
++int Model::materialCount() const
++{
++	guardDisposed();
++	return (int) p->mats.size();
++}
++
++const char *Model::materialName(int index) const
++{
++	guardDisposed();
++
++	if (index < 0 || (size_t) index >= p->mats.size())
++		return "";
++
++	return p->mats[index].name.c_str();
++}
++
++int Model::materialTriangles(int index) const
++{
++	guardDisposed();
++
++	if (index < 0 || (size_t) index >= p->mats.size())
++		return 0;
++
++	return (int) (p->mats[index].indexCount / 3);
++}
++
++void Model::getBounds(float out[6]) const
++{
++	guardDisposed();
++	memcpy(out, p->bounds, sizeof(p->bounds));
++}
++
++void Model::setTexture(const char *material, Bitmap *bitmap)
++{
++	guardDisposed();
++
++	ModelMaterial *m = p->find(material);
++
++	if (bitmap)
++		bitmap->ensureNonMega();
++
++	m->texture = bitmap;
++}
++
++void Model::setColor(const char *material, float r, float g, float b, float a)
++{
++	guardDisposed();
++
++	ModelMaterial *m = p->find(material);
++	m->color[0] = r; m->color[1] = g; m->color[2] = b; m->color[3] = a;
++}
++
++void Model::setVisible(const char *material, bool visible)
++{
++	guardDisposed();
++	p->find(material)->visible = visible;
++}
++
++void Model::render(Bitmap &target, const RenderParams &r)
++{
++	guardDisposed();
++
++	if (target.isDisposed())
++		throw Exception(Exception::RGSSError, "disposed bitmap");
++
++	target.ensureNonMega();
++
++	const int W = target.width();
++	const int H = target.height();
++
++	if (W <= 0 || H <= 0)
++		return;
++
++	/* Same camera math as the Ruby DSOverworld::Camera */
++	const float pitch = r.pitchDeg * kPi / 180.f;
++	const float sinP = sinf(pitch);
++	const float cosP = cosf(pitch);
++	const float zoom = r.zoom > 0.01f ? r.zoom : 0.01f;
++	const float camH = r.focal * sinP / zoom;
++	const float g0 = camH / tanf(pitch);
++	const float yaw = r.yawDeg * kPi / 180.f;
++
++	ModelShader &shader = shState->shaders().model;
++	shader.ensureInit();
++
++	ScratchTarget &s = ScratchTarget::get(W, H);
++
++	FBO::bind(s.tf.fbo);
++
++	glState.scissorTest.pushSet(false);
++	glState.viewport.pushSet(IntRect(0, 0, W, H));
++	glState.blend.pushSet(false);
++	glState.clearColor.pushSet(Vec4(0, 0, 0, 0));
++
++	gl.Clear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
++	gl.Enable(GL_DEPTH_TEST);
++
++	shader.bind();
++	shader.setCamera(sinP, cosP, r.focal, camH, g0, r.centerX, r.centerY);
++	shader.setTarget(r.targetX, r.targetY, W, H);
++	shader.setPlacement(r.posX, r.posY, r.posZ, r.scale, sinf(yaw), cosf(yaw));
++
++	GLMeta::vaoBind(p->vao);
++
++	for (size_t i = 0; i < p->mats.size(); ++i)
++	{
++		ModelMaterial &m = p->mats[i];
++
++		if (!m.visible || m.indexCount == 0)
++			continue;
++
++		bool textured = m.texture && !m.texture->isDisposed();
++
++		if (textured)
++		{
++			m.texture->bindTex(shader);
++			TEX::setRepeat(true);
++		}
++
++		shader.setMaterial(textured, m.color);
++
++		gl.DrawElements(GL_TRIANGLES, (GLsizei) m.indexCount, GL_UNSIGNED_SHORT,
++		                (const GLvoid*) (m.firstIndex * sizeof(GLushort)));
++
++		if (textured)
++			TEX::setRepeat(false);
++	}
++
++	GLMeta::vaoUnbind(p->vao);
++
++	gl.Disable(GL_DEPTH_TEST);
++
++	glState.clearColor.pop();
++	glState.blend.pop();
++	glState.viewport.pop();
++	glState.scissorTest.pop();
++
++	target.blitFromTexFBO(s.tf, IntRect(0, 0, W, H), 0, 0);
++}
++
++void Model::releaseResources()
++{
++	if (p && p->glReady)
++	{
++		GLMeta::vaoFini(p->vao);
++		VBO::del(p->vao.vbo);
++		IBO::del(p->vao.ibo);
++	}
++
++	delete p;
++	p = 0;
++}
+diff --git a/src/display/model.h b/src/display/model.h
+new file mode 100644
+index 00000000..c1017e5f
+--- /dev/null
++++ b/src/display/model.h
+@@ -0,0 +1,76 @@
++/*
++** model.h
++**
++** DS Overworld addon for mkxp-z: renders simple textured 3D models
++** (Wavefront OBJ) into a Bitmap with a depth buffer, using the same
++** perspective camera as the "tilted floor" renderer written in Ruby.
++**
++** The result is an ordinary Bitmap, so it can be shown with a regular
++** Sprite (z-ordering, tone, opacity, viewports all keep working).
++**
++** This file is part of mkxp.
++**
++** mkxp is free software: you can redistribute it and/or modify
++** it under the terms of the GNU General Public License as published by
++** the Free Software Foundation, either version 2 of the License, or
++** (at your option) any later version.
++*/
++
++#ifndef MODEL_H
++#define MODEL_H
++
++#include "disposable.h"
++
++#include <stddef.h>
++
++class Bitmap;
++struct ModelPrivate;
++
++class Model : public Disposable
++{
++public:
++	struct RenderParams
++	{
++		/* Camera (same meaning as the Ruby DSOverworld::Camera) */
++		float pitchDeg;
++		float focal;
++		float zoom;
++		/* Screen center the camera looks at */
++		float centerX, centerY;
++		/* Position of the target bitmap on screen */
++		int targetX, targetY;
++		/* Model origin relative to the focus point, in map pixels:
++		 * x = east, y = up, z = south */
++		float posX, posY, posZ;
++		/* Map pixels per model unit */
++		float scale;
++		/* Rotation around the up axis, in degrees */
++		float yawDeg;
++	};
++
++	Model(const char *objData, size_t objLen);
++	~Model();
++
++	int vertexCount() const;
++	int triangleCount() const;
++	int materialCount() const;
++	const char *materialName(int index) const;
++	int materialTriangles(int index) const;
++	/* minX, minY, minZ, maxX, maxY, maxZ */
++	void getBounds(float out[6]) const;
++
++	void setTexture(const char *material, Bitmap *bitmap);
++	void setColor(const char *material, float r, float g, float b, float a);
++	void setVisible(const char *material, bool visible);
++
++	/* Renders the model into 'target' (clearing it to transparent first). */
++	void render(Bitmap &target, const RenderParams &params);
++
++private:
++	ModelPrivate *p;
++
++	void releaseResources();
++	const char *klassName() const { return "model"; }
++};
++
++#endif // MODEL_H
+diff --git a/src/meson.build b/src/meson.build
+index df48105a..97570154 100755
+--- a/src/meson.build
++++ b/src/meson.build
+@@ -126,6 +126,7 @@ main_source = files(
+     'display/font.cpp',
+     'display/graphics.cpp',
+     'display/plane.cpp',
++    'display/model.cpp',
+     'display/sprite.cpp',
+     'display/tilemap.cpp',
+     'display/tilemapvx.cpp',

@@ -55,6 +55,8 @@
 #include "blurH.vert.xxd"
 #include "blurV.vert.xxd"
 #include "tilemapvx.vert.xxd"
+#include "model.vert.xxd"
+#include "model.frag.xxd"
 #endif
 
 #ifdef MKXPZ_BUILD_XCODE
@@ -762,4 +764,57 @@ void Lanczos3Shader::setTexSize(const Vec2i &value)
 {
 	ShaderBase::setTexSize(value);
 	gl.Uniform2f(u_sourceSize, (float)value.x, (float)value.y);
+}
+
+
+/* DS Overworld addon */
+ModelShader::ModelShader()
+    : ready(false),
+      u_camA(-1), u_camB(-1), u_tgt(-1), u_modelA(-1), u_yaw(-1),
+      u_matColor(-1), u_useTexture(-1)
+{}
+
+void ModelShader::ensureInit()
+{
+	if (ready)
+		return;
+
+	INIT_SHADER(model, model, ModelShader);
+
+	ShaderBase::init();
+
+	GET_U(camA);
+	GET_U(camB);
+	GET_U(tgt);
+	GET_U(modelA);
+	GET_U(yaw);
+	GET_U(matColor);
+	GET_U(useTexture);
+
+	ready = true;
+}
+
+void ModelShader::setCamera(float sinP, float cosP, float focal, float camH,
+                            float g0, float cx, float cy)
+{
+	gl.Uniform4f(u_camA, sinP, cosP, focal, camH);
+	gl.Uniform4f(u_camB, g0, cx, cy, 0.f);
+}
+
+void ModelShader::setTarget(int ox, int oy, int w, int h)
+{
+	gl.Uniform4f(u_tgt, ox, oy, w, h);
+}
+
+void ModelShader::setPlacement(float x, float y, float z, float scale,
+                               float sinYaw, float cosYaw)
+{
+	gl.Uniform4f(u_modelA, x, y, z, scale);
+	gl.Uniform2f(u_yaw, sinYaw, cosYaw);
+}
+
+void ModelShader::setMaterial(bool useTexture, const float color[4])
+{
+	gl.Uniform1f(u_useTexture, useTexture ? 1.f : 0.f);
+	gl.Uniform4f(u_matColor, color[0], color[1], color[2], color[3]);
 }

@@ -26,6 +26,7 @@ binding_source = [files(
     'sprite-binding.cpp',
     'viewport-binding.cpp',
     'plane-binding.cpp',
+    'model-binding.cpp',
     'window-binding.cpp',
     'tilemap-binding.cpp',
     'audio-binding.cpp',

@@ -50,6 +50,7 @@ DECL_TYPE(MiniFFI);
 #define BitmapType "Bitmap"
 #define SpriteType "Sprite"
 #define PlaneType "Plane"
+#define ModelType "Model"
 #define ViewportType "Viewport"
 #define TilemapType "Tilemap"
 #define WindowType "Window"

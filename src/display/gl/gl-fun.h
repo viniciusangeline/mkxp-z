@@ -104,6 +104,11 @@ typedef void (APIENTRYP _PFNGLGENFRAMEBUFFERSPROC) (GLsizei n, GLuint* framebuff
 typedef void (APIENTRYP _PFNGLDELETEFRAMEBUFFERSPROC) (GLsizei n, const GLuint* framebuffers);
 typedef void (APIENTRYP _PFNGLBINDFRAMEBUFFERPROC) (GLenum target, GLuint framebuffer);
 typedef void (APIENTRYP _PFNGLFRAMEBUFFERTEXTURE2DPROC) (GLenum target, GLenum attachment, GLenum textarget, GLuint texture, GLint level);
+typedef void (APIENTRYP _PFNGLGENRENDERBUFFERSPROC) (GLsizei n, GLuint* renderbuffers);
+typedef void (APIENTRYP _PFNGLDELETERENDERBUFFERSPROC) (GLsizei n, const GLuint* renderbuffers);
+typedef void (APIENTRYP _PFNGLBINDRENDERBUFFERPROC) (GLenum target, GLuint renderbuffer);
+typedef void (APIENTRYP _PFNGLRENDERBUFFERSTORAGEPROC) (GLenum target, GLenum internalformat, GLsizei width, GLsizei height);
+typedef void (APIENTRYP _PFNGLFRAMEBUFFERRENDERBUFFERPROC) (GLenum target, GLenum attachment, GLenum renderbuffertarget, GLuint renderbuffer);
 typedef void (APIENTRYP _PFNGLBLITFRAMEBUFFERPROC) (GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0, GLint dstX1, GLint dstY1, GLbitfield mask, GLenum filter);
 
 /* Vertex array object */
@@ -191,7 +196,13 @@ typedef void (APIENTRYP _PFNGLRELEASESHADERCOMPILERPROC) (void);
 	GL_FUN(GenFramebuffers, _PFNGLGENFRAMEBUFFERSPROC) \
 	GL_FUN(DeleteFramebuffers, _PFNGLDELETEFRAMEBUFFERSPROC) \
 	GL_FUN(BindFramebuffer, _PFNGLBINDFRAMEBUFFERPROC) \
-	GL_FUN(FramebufferTexture2D, _PFNGLFRAMEBUFFERTEXTURE2DPROC)
+	GL_FUN(FramebufferTexture2D, _PFNGLFRAMEBUFFERTEXTURE2DPROC) \
+	/* Renderbuffer (used by the Model class for depth) */ \
+	GL_FUN(GenRenderbuffers, _PFNGLGENRENDERBUFFERSPROC) \
+	GL_FUN(DeleteRenderbuffers, _PFNGLDELETERENDERBUFFERSPROC) \
+	GL_FUN(BindRenderbuffer, _PFNGLBINDRENDERBUFFERPROC) \
+	GL_FUN(RenderbufferStorage, _PFNGLRENDERBUFFERSTORAGEPROC) \
+	GL_FUN(FramebufferRenderbuffer, _PFNGLFRAMEBUFFERRENDERBUFFERPROC)
 
 #define GL_FBO_BLIT_FUN \
 	GL_FUN(BlitFramebuffer, _PFNGLBLITFRAMEBUFFERPROC)
