@@ -46,7 +46,8 @@ jobs:
           MSYS2_ENV_CONV_EXCL: CMAKE_POLICY_VERSION_MINIMUM
         run: |
           cd windows
-          make
+          # GCC 15/16 usa C23 por padrao e quebra o Ruby 3.1; forca C17
+          make CFLAGS="-I$PWD/build-mingw64/include -O3 -std=gnu17"
 
       - name: Build exe
         shell: msys2 {0}
