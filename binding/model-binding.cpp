@@ -56,10 +56,15 @@ static int findMaterial(Model *m, const char *name) {
 }
 
 RB_METHOD(modelInitialize) {
-  const char *data;
-  int len;
+  VALUE str = Qnil;
   VALUE files = Qnil;
-  rb_get_args(argc, argv, "s|o", &data, &len, &files RB_ARG_END);
+  /* "o|o": no mkxp-z, 's' e 'S' NAO avancam o ponteiro de argumentos (so 'o',
+     'z', 'i', 'f', 'b'), entao o 2o argumento era lido como a mesma string.
+     Pegamos os dois como objetos e validamos na mao. */
+  rb_get_args(argc, argv, "o|o", &str, &files RB_ARG_END);
+  Check_Type(str, T_STRING);
+  const char *data = RSTRING_PTR(str);
+  int len = (int) RSTRING_LEN(str);
 
   /* Optional: { "uri" => bytes } with the external files of a .gltf */
   std::map<std::string, std::string> externals;
