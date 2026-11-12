@@ -12,6 +12,12 @@
 **   m.render(bitmap, [pitch, focal, zoom, cx, cy, tx, ty,
 **                     px, py, pz, scale, yaw])
 **
+** glTF (.glb bytes, or .gltf text + {uri => bytes}) is detected automatically:
+**   m = Model.new(File.binread("x.glb"))
+**   m.animations   # => [["idle", 2.0], ...]
+**   m.set_pose("idle", 0.5)   # CPU pose; shown by the next render
+**   w, h, rgba = m.image_rgba(m.material_image("mat"))
+**
 ** This file is part of mkxp.
 **
 ** mkxp is free software: you can redistribute it and/or modify
@@ -28,19 +34,53 @@
 
 #include <string.h>
 
+#include <map>
+#include <string>
+
 #if RAPI_FULL > 187
 DEF_TYPE(Model);
 #else
 DEF_ALLOCFUNC(Model);
 #endif
 
+static int findMaterial(Model *m, const char *name) {
+  int n = 0;
+  GFX_GUARD_EXC(n = m->materialCount(););
+
+  for (int i = 0; i < n; ++i)
+    if (strcmp(m->materialName(i), name) == 0)
+      return i;
+
+  rb_raise(rb_eArgError, "unknown material '%s'", name);
+  return -1;
+}
+
 RB_METHOD(modelInitialize) {
   const char *data;
   int len;
-  rb_get_args(argc, argv, "s", &data, &len RB_ARG_END);
+  VALUE files = Qnil;
+  rb_get_args(argc, argv, "s|o", &data, &len, &files RB_ARG_END);
+
+  /* Optional: { "uri" => bytes } with the external files of a .gltf */
+  std::map<std::string, std::string> externals;
+
+  if (!NIL_P(files)) {
+    Check_Type(files, T_HASH);
+
+    VALUE keys = rb_funcall(files, rb_intern("keys"), 0);
+
+    for (long i = 0; i < RARRAY_LEN(keys); ++i) {
+      VALUE k = rb_ary_entry(keys, i);
+      VALUE v = rb_hash_aref(files, k);
+      StringValue(k);
+      StringValue(v);
+      externals[std::string(RSTRING_PTR(k), RSTRING_LEN(k))] =
+          std::string(RSTRING_PTR(v), RSTRING_LEN(v));
+    }
+  }
 
   Model *m = 0;
-  GFX_GUARD_EXC(m = new Model(data, (size_t) len););
+  GFX_GUARD_EXC(m = new Model(data, (size_t) len, &externals););
 
   setPrivateData(self, m);
 
@@ -164,6 +204,128 @@ RB_METHOD(modelSetVisible) {
   return self;
 }
 
+RB_METHOD(modelIsGltf) {
+  RB_UNUSED_PARAM;
+
+  Model *m = getPrivateData<Model>(self);
+  bool v = false;
+  GFX_GUARD_EXC(v = m->isGltf(););
+  return v ? Qtrue : Qfalse;
+}
+
+/* => [["idle", 2.0], ["open", 0.8], ...] */
+RB_METHOD(modelAnimations) {
+  RB_UNUSED_PARAM;
+
+  Model *m = getPrivateData<Model>(self);
+  int n = 0;
+  GFX_GUARD_EXC(n = m->animationCount(););
+
+  VALUE ary = rb_ary_new();
+
+  for (int i = 0; i < n; ++i) {
+    VALUE pair = rb_ary_new();
+    rb_ary_push(pair, rb_str_new_cstr(m->animationName(i)));
+    rb_ary_push(pair, rb_float_new(m->animationDuration(i)));
+    rb_ary_push(ary, pair);
+  }
+
+  return ary;
+}
+
+/* set_pose("walk", 0.5)  /  set_pose(nil, 0) for the rest pose */
+RB_METHOD(modelSetPose) {
+  VALUE anim;
+  double time;
+  rb_get_args(argc, argv, "of", &anim, &time RB_ARG_END);
+
+  Model *m = getPrivateData<Model>(self);
+  int index = -1;
+
+  if (!NIL_P(anim)) {
+    if (RB_TYPE_P(anim, T_STRING)) {
+      const char *name = StringValueCStr(anim);
+      int n = 0;
+      GFX_GUARD_EXC(n = m->animationCount(););
+      index = -2;
+
+      for (int i = 0; i < n; ++i)
+        if (strcmp(m->animationName(i), name) == 0)
+          index = i;
+
+      if (index == -2)
+        rb_raise(rb_eArgError, "unknown animation '%s'", name);
+    } else
+      index = NUM2INT(anim);
+  }
+
+  GFX_GUARD_EXC(m->setPose(index, (float) time););
+
+  return self;
+}
+
+RB_METHOD(modelImageCount) {
+  RB_UNUSED_PARAM;
+
+  Model *m = getPrivateData<Model>(self);
+  int n = 0;
+  GFX_GUARD_EXC(n = m->imageCount(););
+  return INT2NUM(n);
+}
+
+/* Index of the texture image used by a material, or -1 */
+RB_METHOD(modelMaterialImage) {
+  const char *name;
+  rb_get_args(argc, argv, "z", &name RB_ARG_END);
+
+  Model *m = getPrivateData<Model>(self);
+  int mi = findMaterial(m, name);
+  int img = -1;
+  GFX_GUARD_EXC(img = m->materialImage(mi););
+  return INT2NUM(img);
+}
+
+RB_METHOD(modelMaterialColor) {
+  const char *name;
+  rb_get_args(argc, argv, "z", &name RB_ARG_END);
+
+  Model *m = getPrivateData<Model>(self);
+  int mi = findMaterial(m, name);
+  float c[4] = {0, 0, 0, 1};
+  GFX_GUARD_EXC(m->materialColor(mi, c););
+
+  VALUE ary = rb_ary_new();
+  for (int i = 0; i < 4; ++i)
+    rb_ary_push(ary, rb_float_new(c[i]));
+  return ary;
+}
+
+/* => [width, height, rgba_bytes]; feed it to Bitmap#raw_data= */
+RB_METHOD(modelImageRGBA) {
+  int index;
+  rb_get_args(argc, argv, "i", &index RB_ARG_END);
+
+  Model *m = getPrivateData<Model>(self);
+  int w = 0, h = 0;
+  std::string pixels;
+  GFX_GUARD_EXC(m->imageRGBA(index, w, h, pixels););
+
+  VALUE ary = rb_ary_new();
+  rb_ary_push(ary, INT2NUM(w));
+  rb_ary_push(ary, INT2NUM(h));
+  rb_ary_push(ary, rb_str_new(pixels.data(), (long) pixels.size()));
+  return ary;
+}
+
+RB_METHOD(modelToObj) {
+  RB_UNUSED_PARAM;
+
+  Model *m = getPrivateData<Model>(self);
+  std::string text;
+  GFX_GUARD_EXC(text = m->toObj(););
+  return rb_str_new(text.data(), (long) text.size());
+}
+
 RB_METHOD(modelRender) {
   VALUE bmpObj;
   VALUE params;
@@ -222,4 +384,12 @@ void modelBindingInit() {
   _rb_define_method(klass, "set_color", modelSetColor);
   _rb_define_method(klass, "set_visible", modelSetVisible);
   _rb_define_method(klass, "render", modelRender);
+  _rb_define_method(klass, "gltf?", modelIsGltf);
+  _rb_define_method(klass, "animations", modelAnimations);
+  _rb_define_method(klass, "set_pose", modelSetPose);
+  _rb_define_method(klass, "image_count", modelImageCount);
+  _rb_define_method(klass, "material_image", modelMaterialImage);
+  _rb_define_method(klass, "material_color", modelMaterialColor);
+  _rb_define_method(klass, "image_rgba", modelImageRGBA);
+  _rb_define_method(klass, "to_obj", modelToObj);
 }
