@@ -23,6 +23,9 @@
 
 #include <stddef.h>
 
+#include <map>
+#include <string>
+
 class Bitmap;
 struct ModelPrivate;
 
@@ -48,7 +51,10 @@ public:
 		float yawDeg;
 	};
 
-	Model(const char *objData, size_t objLen);
+	/* Accepts Wavefront OBJ text, or a glTF 2.0 file (.glb bytes, or .gltf
+	 * JSON text plus its external files in 'externals': uri -> bytes). */
+	Model(const char *objData, size_t objLen,
+	      const std::map<std::string, std::string> *externals = 0);
 	~Model();
 
 	int vertexCount() const;
@@ -62,6 +68,23 @@ public:
 	void setTexture(const char *material, Bitmap *bitmap);
 	void setColor(const char *material, float r, float g, float b, float a);
 	void setVisible(const char *material, bool visible);
+
+	/* glTF extras. Animations are evaluated on the CPU: setPose() poses the
+	 * model (anim < 0 = rest pose) and the next render() shows it. */
+	bool isGltf() const;
+	int animationCount() const;
+	const char *animationName(int index) const;
+	float animationDuration(int index) const;
+	void setPose(int anim, float time);
+
+	/* Embedded/linked texture images of a glTF file, decoded to RGBA bytes */
+	int imageCount() const;
+	int materialImage(int materialIndex) const;
+	void materialColor(int materialIndex, float out[4]) const;
+	void imageRGBA(int image, int &w, int &h, std::string &pixels) const;
+
+	/* Current pose as Wavefront OBJ text (used to merge static tile models) */
+	std::string toObj() const;
 
 	/* Renders the model into 'target' (clearing it to transparent first). */
 	void render(Bitmap &target, const RenderParams &params);
