@@ -59,9 +59,10 @@ struct ModelMaterial
 	float color[4];
 	float uv[4];   /* offset u, offset v, scale u, scale v */
 	bool visible;
+	bool depthOnly;   /* writes depth but no color (invisible occluder) */
 
 	ModelMaterial()
-	    : firstIndex(0), indexCount(0), texture(0), visible(true)
+	    : firstIndex(0), indexCount(0), texture(0), visible(true), depthOnly(false)
 	{
 		uv[0] = uv[1] = 0.f;
 		uv[2] = uv[3] = 1.f;
@@ -713,6 +714,14 @@ void Model::setUV(const char *material, float ox, float oy, float sx, float sy)
 	m->uv[0] = ox; m->uv[1] = oy; m->uv[2] = sx; m->uv[3] = sy;
 }
 
+void Model::setDepthOnly(const char *material, bool depthOnly)
+{
+	guardDisposed();
+
+	ModelMaterial *m = p->find(material);
+	m->depthOnly = depthOnly;
+}
+
 void Model::setVisible(const char *material, bool visible)
 {
 	guardDisposed();
@@ -954,8 +963,14 @@ void Model::render(Bitmap &target, const RenderParams &r)
 		shader.setMaterial(textured, m.color);
 		shader.setUV(m.uv);
 
+		if (m.depthOnly)
+			gl.ColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+
 		gl.DrawElements(GL_TRIANGLES, (GLsizei) m.indexCount, GL_UNSIGNED_SHORT,
 		                (const GLvoid*) (m.firstIndex * sizeof(GLushort)));
+
+		if (m.depthOnly)
+			gl.ColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 
 		if (textured)
 			TEX::setRepeat(false);

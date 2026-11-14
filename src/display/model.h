@@ -71,6 +71,8 @@ public:
 	/* UV transform of a material: uv' = uv * (sx, sy) + (ox, oy). Used for
 	 * animated textures (frames of a sprite sheet) without re-uploading. */
 	void setUV(const char *material, float ox, float oy, float sx, float sy);
+	/* Material that only writes the depth buffer (invisible occluder) */
+	void setDepthOnly(const char *material, bool depthOnly);
 
 	/* glTF extras. Animations are evaluated on the CPU: setPose() poses the
 	 * model (anim < 0 = rest pose) and the next render() shows it. */
