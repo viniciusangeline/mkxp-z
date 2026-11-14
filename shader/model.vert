@@ -13,6 +13,7 @@ uniform vec4 camB;    // g0, screen center x, screen center y, unused
 uniform vec4 tgt;     // target origin on screen (ox, oy), target size (w, h)
 uniform vec4 modelA;  // model origin in world: x, y (up), z (south); scale
 uniform vec2 yaw;     // sin, cos of the model rotation around the up axis
+uniform vec4 uvXf;    // per-material UV transform: offset u, offset v, scale u, scale v
 
 attribute vec3 position;
 attribute vec2 texCoord;
@@ -50,5 +51,5 @@ void main()
 
 	gl_Position = vec4(cx, cy, cz, depth);
 
-	v_texCoord = texCoord;
+	v_texCoord = texCoord * uvXf.zw + uvXf.xy;
 }
