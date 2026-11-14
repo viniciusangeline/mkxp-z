@@ -352,10 +352,11 @@ public:
 	void setPlacement(float x, float y, float z, float scale,
 	                  float sinYaw, float cosYaw);
 	void setMaterial(bool useTexture, const float color[4]);
+	void setUV(const float uv[4]);
 
 private:
 	bool ready;
-	GLint u_camA, u_camB, u_tgt, u_modelA, u_yaw, u_matColor, u_useTexture;
+	GLint u_camA, u_camB, u_tgt, u_modelA, u_yaw, u_matColor, u_useTexture, u_uvXf;
 };
 
 /* Global object containing all available shaders */

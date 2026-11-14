@@ -771,7 +771,7 @@ void Lanczos3Shader::setTexSize(const Vec2i &value)
 ModelShader::ModelShader()
     : ready(false),
       u_camA(-1), u_camB(-1), u_tgt(-1), u_modelA(-1), u_yaw(-1),
-      u_matColor(-1), u_useTexture(-1)
+      u_matColor(-1), u_useTexture(-1), u_uvXf(-1)
 {}
 
 void ModelShader::ensureInit()
@@ -790,6 +790,7 @@ void ModelShader::ensureInit()
 	GET_U(yaw);
 	GET_U(matColor);
 	GET_U(useTexture);
+	GET_U(uvXf);
 
 	ready = true;
 }
@@ -811,6 +812,11 @@ void ModelShader::setPlacement(float x, float y, float z, float scale,
 {
 	gl.Uniform4f(u_modelA, x, y, z, scale);
 	gl.Uniform2f(u_yaw, sinYaw, cosYaw);
+}
+
+void ModelShader::setUV(const float uv[4])
+{
+	gl.Uniform4f(u_uvXf, uv[0], uv[1], uv[2], uv[3]);
 }
 
 void ModelShader::setMaterial(bool useTexture, const float color[4])
