@@ -198,6 +198,17 @@ RB_METHOD(modelSetColor) {
   return self;
 }
 
+RB_METHOD(modelSetDepthOnly) {
+  const char *name;
+  bool flag = true;
+  rb_get_args(argc, argv, "z|b", &name, &flag RB_ARG_END);
+
+  Model *m = getPrivateData<Model>(self);
+  GFX_GUARD_EXC(m->setDepthOnly(name, flag););
+
+  return self;
+}
+
 RB_METHOD(modelSetUV) {
   const char *name;
   double ox, oy;
@@ -401,6 +412,7 @@ void modelBindingInit() {
   _rb_define_method(klass, "set_color", modelSetColor);
   _rb_define_method(klass, "set_visible", modelSetVisible);
   _rb_define_method(klass, "set_uv", modelSetUV);
+  _rb_define_method(klass, "set_depth_only", modelSetDepthOnly);
   _rb_define_method(klass, "render", modelRender);
   _rb_define_method(klass, "gltf?", modelIsGltf);
   _rb_define_method(klass, "animations", modelAnimations);
