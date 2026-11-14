@@ -198,6 +198,18 @@ RB_METHOD(modelSetColor) {
   return self;
 }
 
+RB_METHOD(modelSetUV) {
+  const char *name;
+  double ox, oy;
+  double sx = 1.0, sy = 1.0;
+  rb_get_args(argc, argv, "zff|ff", &name, &ox, &oy, &sx, &sy RB_ARG_END);
+
+  Model *m = getPrivateData<Model>(self);
+  GFX_GUARD_EXC(m->setUV(name, (float) ox, (float) oy, (float) sx, (float) sy););
+
+  return self;
+}
+
 RB_METHOD(modelSetVisible) {
   const char *name;
   bool visible;
@@ -388,6 +400,7 @@ void modelBindingInit() {
   _rb_define_method(klass, "set_texture", modelSetTexture);
   _rb_define_method(klass, "set_color", modelSetColor);
   _rb_define_method(klass, "set_visible", modelSetVisible);
+  _rb_define_method(klass, "set_uv", modelSetUV);
   _rb_define_method(klass, "render", modelRender);
   _rb_define_method(klass, "gltf?", modelIsGltf);
   _rb_define_method(klass, "animations", modelAnimations);
