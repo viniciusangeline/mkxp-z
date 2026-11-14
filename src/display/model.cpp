@@ -57,11 +57,14 @@ struct ModelMaterial
 	size_t indexCount;
 	Bitmap *texture;
 	float color[4];
+	float uv[4];   /* offset u, offset v, scale u, scale v */
 	bool visible;
 
 	ModelMaterial()
 	    : firstIndex(0), indexCount(0), texture(0), visible(true)
 	{
+		uv[0] = uv[1] = 0.f;
+		uv[2] = uv[3] = 1.f;
 		color[0] = color[1] = color[2] = 0.8f;
 		color[3] = 1.f;
 	}
@@ -702,6 +705,14 @@ void Model::setColor(const char *material, float r, float g, float b, float a)
 	m->color[0] = r; m->color[1] = g; m->color[2] = b; m->color[3] = a;
 }
 
+void Model::setUV(const char *material, float ox, float oy, float sx, float sy)
+{
+	guardDisposed();
+
+	ModelMaterial *m = p->find(material);
+	m->uv[0] = ox; m->uv[1] = oy; m->uv[2] = sx; m->uv[3] = sy;
+}
+
 void Model::setVisible(const char *material, bool visible)
 {
 	guardDisposed();
@@ -941,6 +952,7 @@ void Model::render(Bitmap &target, const RenderParams &r)
 		}
 
 		shader.setMaterial(textured, m.color);
+		shader.setUV(m.uv);
 
 		gl.DrawElements(GL_TRIANGLES, (GLsizei) m.indexCount, GL_UNSIGNED_SHORT,
 		                (const GLvoid*) (m.firstIndex * sizeof(GLushort)));

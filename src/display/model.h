@@ -68,6 +68,9 @@ public:
 	void setTexture(const char *material, Bitmap *bitmap);
 	void setColor(const char *material, float r, float g, float b, float a);
 	void setVisible(const char *material, bool visible);
+	/* UV transform of a material: uv' = uv * (sx, sy) + (ox, oy). Used for
+	 * animated textures (frames of a sprite sheet) without re-uploading. */
+	void setUV(const char *material, float ox, float oy, float sx, float sy);
 
 	/* glTF extras. Animations are evaluated on the CPU: setPose() poses the
 	 * model (anim < 0 = rest pose) and the next render() shows it. */
