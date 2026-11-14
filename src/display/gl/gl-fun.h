@@ -33,6 +33,7 @@
 typedef GLenum (APIENTRYP _PFNGLGETERRORPROC) (void);
 typedef void (APIENTRYP _PFNGLCLEARCOLORPROC) (GLclampf red, GLclampf green, GLclampf blue, GLclampf alpha);
 typedef void (APIENTRYP _PFNGLCLEARPROC) (GLbitfield mask);
+typedef void (APIENTRYP _PFNGLCOLORMASKPROC) (GLboolean r, GLboolean g, GLboolean b, GLboolean a);
 typedef const GLubyte * (APIENTRYP _PFNGLGETSTRINGPROC) (GLenum name);
 typedef void (APIENTRYP _PFNGLGETINTEGERVPROC) (GLenum pname, GLint *params);
 typedef void (APIENTRYP _PFNGLPIXELSTOREIPROC) (GLenum pname, GLint param);
@@ -133,6 +134,7 @@ typedef void (APIENTRYP _PFNGLRELEASESHADERCOMPILERPROC) (void);
 	GL_FUN(GetError, _PFNGLGETERRORPROC) \
 	GL_FUN(ClearColor, _PFNGLCLEARCOLORPROC) \
 	GL_FUN(Clear, _PFNGLCLEARPROC) \
+	GL_FUN(ColorMask, _PFNGLCOLORMASKPROC) \
 	GL_FUN(GetString, _PFNGLGETSTRINGPROC) \
 	GL_FUN(GetIntegerv, _PFNGLGETINTEGERVPROC) \
 	GL_FUN(PixelStorei, _PFNGLPIXELSTOREIPROC) \
