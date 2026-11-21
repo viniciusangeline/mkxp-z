@@ -37,6 +37,7 @@
 #include "bitmapBlit.frag.xxd"
 #include "plane.frag.xxd"
 #include "gray.frag.xxd"
+#include "screenfx.frag.xxd"
 #include "flatColor.frag.xxd"
 #include "simple.frag.xxd"
 #include "simpleColor.frag.xxd"
@@ -599,6 +600,27 @@ GrayShader::GrayShader()
 void GrayShader::setGray(float value)
 {
 	gl.Uniform1f(u_gray, value);
+}
+
+
+ScreenFxShader::ScreenFxShader()
+{
+	INIT_SHADER(simple, screenfx, ScreenFxShader);
+
+	ShaderBase::init();
+
+	GET_U(fxSize);
+	GET_U(fxA);
+	GET_U(fxB);
+	GET_U(fxRect);
+}
+
+void ScreenFxShader::setParams(const Vec2i &size, const Vec4 &a, const Vec4 &b, const IntRect &r)
+{
+	gl.Uniform2f(u_fxSize, size.x, size.y);
+	setVec4Uniform(u_fxA, a);
+	setVec4Uniform(u_fxB, b);
+	gl.Uniform4f(u_fxRect, r.x, r.y, r.w, r.h);
 }
 
 

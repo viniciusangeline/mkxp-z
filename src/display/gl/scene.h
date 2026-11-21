@@ -59,6 +59,10 @@ public:
 	                                   const Vec4& /* flash */,
 	                                   const Vec4& /* tone */) {}
 
+	/* Per-viewport GPU effect (wave + zoom + tint) */
+	virtual void requestViewportFx(const Vec4& /* a */,
+	                               const Vec4& /* b */) {}
+
 	const Geometry &getGeometry() const { return geometry; }
 
 protected:

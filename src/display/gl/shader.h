@@ -230,6 +230,17 @@ private:
 	GLint u_gray;
 };
 
+class ScreenFxShader : public ShaderBase
+{
+public:
+	ScreenFxShader();
+
+	void setParams(const Vec2i &size, const Vec4 &a, const Vec4 &b, const IntRect &rect);
+
+private:
+	GLint u_fxSize, u_fxA, u_fxB, u_fxRect;
+};
+
 class TilemapShader : public ShaderBase
 {
 public:
@@ -371,6 +382,7 @@ struct ShaderSet
 	SpriteShader sprite;
 	PlaneShader plane;
 	GrayShader gray;
+	ScreenFxShader screenFx;
 	TilemapShader tilemap;
 	FlashMapShader flashMap;
 	TransShader trans;
