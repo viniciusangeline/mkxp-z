@@ -95,6 +95,36 @@ DEF_GFX_PROP_OBJ_VAL(Viewport, Rect, Rect, "rect")
 DEF_GFX_PROP_OBJ_VAL(Viewport, Color, Color, "color")
 DEF_GFX_PROP_OBJ_VAL(Viewport, Tone, Tone, "tone")
 
+RB_METHOD(viewportSetFx)
+{
+    Viewport *v = getPrivateData<Viewport>(self);
+    
+    double amp, length, phase, zoom, r, g, b, k;
+    rb_get_args(argc, argv, "ffffffff", &amp, &length, &phase, &zoom, &r, &g, &b, &k RB_ARG_END);
+    
+    GFX_GUARD_EXC(v->setFx(amp, length, phase, zoom, r, g, b, k););
+    
+    return Qnil;
+}
+
+RB_METHOD(viewportClearFx)
+{
+    RB_UNUSED_PARAM;
+    Viewport *v = getPrivateData<Viewport>(self);
+    
+    GFX_GUARD_EXC(v->clearFx(););
+    
+    return Qnil;
+}
+
+RB_METHOD(viewportFxActive)
+{
+    RB_UNUSED_PARAM;
+    Viewport *v = getPrivateData<Viewport>(self);
+    
+    return rb_bool_new(v->fxActive());
+}
+
 DEF_GFX_PROP_I(Viewport, OX)
 DEF_GFX_PROP_I(Viewport, OY)
 
@@ -118,4 +148,8 @@ void viewportBindingInit() {
     INIT_PROP_BIND(Viewport, OY, "oy");
     INIT_PROP_BIND(Viewport, Color, "color");
     INIT_PROP_BIND(Viewport, Tone, "tone");
+    
+    _rb_define_method(klass, "set_fx", viewportSetFx);
+    _rb_define_method(klass, "clear_fx", viewportClearFx);
+    _rb_define_method(klass, "fx_active?", viewportFxActive);
 }
