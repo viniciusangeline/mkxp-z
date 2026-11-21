@@ -1,0 +1,88 @@
+# Builds only the Windows executable (mkxp-z + DS Overworld "Model" addon).
+# Run it from the "Actions" tab ("Run workflow") or push to any branch.
+name: Build Windows (Model addon)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['autobuild', 'dsmodel']
+
+jobs:
+  build-windows:
+    name: Windows
+    runs-on: windows-latest
+    env:
+      # CMake 4 recusa projetos antigos (libjpeg-turbo etc.) sem isto
+      CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+      # GCC novo nao inclui <cstdint> sozinho (openal-soft antigo precisa)
+      CXXFLAGS: "-include cstdint"
+    steps:
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: mingw64
+          install: >-
+            base-devel
+            git
+            ruby
+            vim
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-meson
+            mingw-w64-x86_64-autotools
+            mingw-w64-x86_64-gcc
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            windows/build-mingw64
+            windows/downloads
+          key: win-${{ hashFiles('windows/Makefile') }}
+
+      - name: Build all dependencies
+        shell: msys2 {0}
+        env:
+          MSYS2_ENV_CONV_EXCL: CMAKE_POLICY_VERSION_MINIMUM
+        run: |
+          cd windows
+          # GCC 15/16 usa C23 por padrao e quebra o Ruby 3.1: forca C17.
+          # (editar o Makefile em vez de "make CFLAGS=..." para nao
+          # sobrescrever o CFLAGS interno de freetype/SDL_image)
+          sed -i 's/^CFLAGS := -I\$(INCLUDEDIR) -O3/& -std=gnu17/' Makefile
+          grep -n '^CFLAGS' Makefile
+          make
+
+      - name: Build exe
+        shell: msys2 {0}
+        run: |
+          source windows/vars.sh
+          meson build
+          cd build
+          ninja
+          strip ./mkxp-z.exe
+
+      - name: Prepare archive
+        shell: msys2 {0}
+        run: |
+          mkdir build/artifact
+          cd build/artifact
+          cp /mingw64/bin/zlib1.dll . 2>/dev/null || true
+          cp /mingw64/bin/libz*.dll . 2>/dev/null || true
+          cp ../../windows/build-mingw64/bin/x64-msvcrt-ruby310.dll .
+          cp -r ../../windows/build-mingw64/lib/ruby/3.1.0 .
+          mv ./3.1.0 ./stdlib
+          cp ../mkxp-z.exe .
+          # copia TODA dll do MSYS2 que o exe usa (o nome da zlib mudou: zlib1.dll -> libz-1.dll)
+          for d in $(ldd ../mkxp-z.exe | grep -i '/mingw64/' | awk '{print $3}'); do cp -n "$d" . ; done
+          echo "DLLs no pacote:"; ls *.dll
+          cp ../../mkxp.json .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mkxp-z-windows-model-addon
+          path: |
+            build/artifact/*.dll
+            build/artifact/*.exe
+            build/artifact/mkxp.json
+            build/artifact/stdlib/
