@@ -7,6 +7,7 @@ embedded_shaders = [
     'sprite.frag',
     'plane.frag',
     'gray.frag',
+    'screenfx.frag',
     'bitmapBlit.frag',
     'flatColor.frag',
     'simple.frag',
