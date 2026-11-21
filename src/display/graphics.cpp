@@ -522,6 +522,38 @@ public:
         }
     }
     
+    void requestViewportFx(const Vec4 &a, const Vec4 &b) {
+        const IntRect &viewpRect = glState.scissorBox.get();
+        const IntRect &screenRect = geometry.rect;
+        
+        pp.swapRender();
+        
+        if (!viewpRect.encloses(screenRect)) {
+            /* Same as the gray pass: scissor affects blits, copy the
+             * untouched area first */
+            glState.scissorTest.pushSet(false);
+            
+            GLMeta::blitBegin(pp.frontBuffer());
+            GLMeta::blitSource(pp.backBuffer());
+            GLMeta::blitRectangle(geometry.rect, Vec2i());
+            GLMeta::blitEnd();
+            
+            glState.scissorTest.pop();
+        }
+        
+        ScreenFxShader &shader = shState->shaders().screenFx;
+        shader.bind();
+        shader.setParams(screenRect.size(), a, b, viewpRect);
+        shader.applyViewportProj();
+        shader.setTexSize(screenRect.size());
+        
+        TEX::bind(pp.backBuffer().tex);
+        
+        glState.blend.pushSet(false);
+        screenQuad.draw();
+        glState.blend.pop();
+    }
+    
     void requestViewportRender(const Vec4 &c, const Vec4 &f, const Vec4 &t) {
         const IntRect &viewpRect = glState.scissorBox.get();
         const IntRect &screenRect = geometry.rect;

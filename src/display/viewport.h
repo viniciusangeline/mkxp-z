@@ -47,6 +47,13 @@ public:
 
 	void initDynAttribs();
 
+	/* GPU screen effect, only for this viewport.
+	 * a = (amp px, length px, phase rad, zoom), b = (r,g,b tint 0..1, strength) */
+	void setFx(float amp, float length, float phase, float zoom,
+	           float r, float g, float b, float strength);
+	void clearFx();
+	bool fxActive() const;
+
 private:
 	void initViewport(int x, int y, int width, int height);
 	void geometryChanged();

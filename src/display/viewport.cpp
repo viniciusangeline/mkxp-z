@@ -46,6 +46,9 @@ struct ViewportPrivate
 	IntRect screenRect;
 	int isOnScreen;
 
+	bool fxOn;
+	Vec4 fxA, fxB;
+
 	EtcTemps tmp;
 
 	ViewportPrivate(int x, int y, int width, int height, Viewport *self)
@@ -53,7 +56,8 @@ struct ViewportPrivate
 	      rect(&tmp.rect),
 	      color(&tmp.color),
 	      tone(&tmp.tone),
-	      isOnScreen(false)
+	      isOnScreen(false),
+	      fxOn(false)
 	{
 		rect->set(x, y, width, height);
 		updateRectCon();
@@ -93,7 +97,7 @@ struct ViewportPrivate
 	bool needsEffectRender(bool flashing)
 	{
 		bool rectEffective = !rect->isEmpty();
-		bool colorToneEffective = color->hasEffect() || tone->hasEffect() || flashing;
+		bool colorToneEffective = color->hasEffect() || tone->hasEffect() || flashing || fxOn;
 
 		return (rectEffective && colorToneEffective && isOnScreen);
 	}
@@ -173,6 +177,28 @@ void Viewport::setOY(int value)
 	notifyGeometryChange();
 }
 
+void Viewport::setFx(float amp, float length, float phase, float zoom,
+                     float r, float g, float b, float strength)
+{
+	guardDisposed();
+
+	p->fxOn = true;
+	p->fxA = Vec4(amp, length, phase, zoom);
+	p->fxB = Vec4(r, g, b, strength);
+}
+
+void Viewport::clearFx()
+{
+	guardDisposed();
+
+	p->fxOn = false;
+}
+
+bool Viewport::fxActive() const
+{
+	return p->fxOn;
+}
+
 void Viewport::initDynAttribs()
 {
 	p->rect = new Rect(*p->rect);
@@ -202,8 +228,13 @@ void Viewport::composite()
 	/* If any effects are visible, request parent Scene to
 	 * render them. */
 	if (renderEffect)
+	{
+		if (p->fxOn)
+			scene->requestViewportFx(p->fxA, p->fxB);
+
 		scene->requestViewportRender
 		        (p->color->norm, flashColor, p->tone->norm);
+	}
 
 	glState.scissorBox.pop();
 	glState.scissorTest.pop();
